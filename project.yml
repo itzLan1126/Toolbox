@@ -1,0 +1,65 @@
+name: Toolbox
+options:
+  bundleIdPrefix: com.itzlan
+  deploymentTarget:
+    macOS: "14.0"
+packages:
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts
+    from: 3.1.0
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.10.1
+targets:
+  Toolbox:
+    type: application
+    platform: macOS
+    sources: [Toolbox]
+    dependencies:
+      - package: KeyboardShortcuts
+      - package: Sparkle
+    info:
+      path: Toolbox/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: Toolbox
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSUIElement: true
+        LSApplicationCategoryType: public.app-category.utilities
+        NSHumanReadableCopyright: Copyright © 2026 itzLan1126. Licensed under GPL-3.0.
+        SUFeedURL: https://github.com/itzLan1126/Toolbox/releases/latest/download/appcast.xml
+        SUPublicEDKey: "De8l3S4T9Z/O0z3u1C+qfw5PAc8icClt3h5+TLPsmzU="
+        SUEnableAutomaticChecks: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.itzlan.Toolbox
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        SWIFT_VERSION: 5.0
+        ENABLE_HARDENED_RUNTIME: NO
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        GENERATE_INFOPLIST_FILE: NO
+        SWIFT_EMIT_LOC_STRINGS: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      configs:
+        Release:
+          ONLY_ACTIVE_ARCH: NO
+          ARCHS: "arm64 x86_64"
+  ToolboxTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [ToolboxTests]
+    dependencies:
+      - target: Toolbox
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_IDENTITY: "-"
+schemes:
+  Toolbox:
+    build:
+      targets:
+        Toolbox: all
+    test:
+      targets: [ToolboxTests]

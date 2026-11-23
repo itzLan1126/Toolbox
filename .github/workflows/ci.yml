@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", ".gitignore"]
+  pull_request:
+    paths-ignore: ["**.md", ".gitignore"]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: build/spm
+          key: spm-${{ runner.os }}-${{ hashFiles('project.yml') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Test
+        run: |
+          brew install xcodegen
+          xcodegen generate
+          xcodebuild -project Toolbox.xcodeproj -scheme Toolbox \
+            -derivedDataPath build/dd \
+            -clonedSourcePackagesDirPath build/spm \
+            test

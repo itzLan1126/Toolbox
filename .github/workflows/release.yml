@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  SPARKLE_VERSION: 2.10.1
+
+jobs:
+  release:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Import self-signed certificate into a temporary keychain
+        env:
+          CERT_P12_BASE64: ${{ secrets.CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          existing=()
+          while read -r k; do existing+=("${k//\"/}"); done < <(security list-keychains -d user)
+          security list-keychains -d user -s "$KEYCHAIN" "${existing[@]}"
+          rm "$RUNNER_TEMP/cert.p12"
+
+      - name: Build universal app
+        run: |
+          brew install xcodegen create-dmg
+          xcodegen generate
+          xcodebuild -project Toolbox.xcodeproj -scheme Toolbox -configuration Release \
+            -derivedDataPath build/dd \
+            MARKETING_VERSION="${GITHUB_REF_NAME#v}" \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+          lipo -archs build/dd/Build/Products/Release/Toolbox.app/Contents/MacOS/Toolbox
+
+      - name: Codesign
+        env:
+          CODE_SIGN_IDENTITY: ${{ secrets.CODE_SIGN_IDENTITY }}
+        run: |
+          # Same certificate every release so Accessibility permission survives updates.
+          codesign --force --deep --sign "$CODE_SIGN_IDENTITY" build/dd/Build/Products/Release/Toolbox.app
+          codesign --verify --deep --strict build/dd/Build/Products/Release/Toolbox.app
+
+      - name: Create DMG and checksum
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist stage
+          cp -R build/dd/Build/Products/Release/Toolbox.app stage/
+          create-dmg --volname Toolbox --window-size 540 300 --icon-size 96 \
+            --icon Toolbox.app 140 130 --app-drop-link 400 130 \
+            "dist/Toolbox-$VERSION.dmg" stage/
+
+      - name: Generate Sparkle appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          curl -sSL "https://github.com/sparkle-project/Sparkle/releases/download/$SPARKLE_VERSION/Sparkle-$SPARKLE_VERSION.tar.xz" | tar -xJ -C "$RUNNER_TEMP"
+          printf '%s' "$SPARKLE_PRIVATE_KEY" > "$RUNNER_TEMP/ed25519.key"
+          "$RUNNER_TEMP/bin/generate_appcast" \
+            --ed-key-file "$RUNNER_TEMP/ed25519.key" \
+            --download-url-prefix "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/" \
+            -o dist/appcast.xml dist/
+          rm "$RUNNER_TEMP/ed25519.key"
+          cd dist && shasum -a 256 -- *.dmg > "Toolbox-${GITHUB_REF_NAME#v}.dmg.sha256"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/*.dmg dist/*.sha256 dist/appcast.xml --title "Toolbox $GITHUB_REF_NAME" --generate-notes
